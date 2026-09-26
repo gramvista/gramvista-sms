@@ -1,0 +1,3 @@
+-- No production credits, wholesale costs or commercial prices are seeded.
+-- Provision the first platform administrator with a trusted SQL connection:
+-- insert into public.platform_admins(user_id) values ('<verified-auth-user-id>');

@@ -1,0 +1,24 @@
+project_id = "gramvista-sms"
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+max_rows = 10000
+[db]
+port = 54322
+major_version = 17
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173", "http://localhost:5173/reset-password", "http://127.0.0.1:5173", "http://127.0.0.1:5173/reset-password"]
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+[functions.public-api]
+verify_jwt = false
+[functions.worker]
+verify_jwt = false
+[functions.kilakona-delivery-webhook]
+verify_jwt = false
+[functions.clickpesa-webhook]
+verify_jwt = false

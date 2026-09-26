@@ -1,0 +1,7 @@
+dist
+node_modules
+.local
+test-results
+playwright-report
+package-lock.json
+docs/MASTER-SPEC.md
