@@ -1,6 +1,6 @@
 # Gramvista API v1
 
-Production domain example: `https://api.sms.gramvistaempire.com/v1`. Local base: `http://127.0.0.1:8787/api/v1`. Supabase direct base: `https://PROJECT.supabase.co/functions/v1/public-api/v1`.
+Production base: `https://sscleaiwktklkuxqqndf.supabase.co/functions/v1/public-api/v1`. Local demo base: `http://127.0.0.1:8787/api/v1`.
 
 ## Authentication
 
@@ -15,7 +15,7 @@ Browser requests use a verified Supabase user JWT. `X-Organization-Id` can selec
 ## Send
 
 ```sh
-curl -X POST https://api.sms.gramvistaempire.com/v1/messages \
+curl -X POST https://sscleaiwktklkuxqqndf.supabase.co/functions/v1/public-api/v1/messages \
   -H "Authorization: Bearer gvs_live_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: order-12882" \

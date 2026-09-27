@@ -642,7 +642,7 @@ export function DeveloperPage() {
   const [raw, setRaw] = useState("");
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
-  const code = `curl -X POST https://api.sms.gramvistaempire.com/v1/messages \\\n  -H "Authorization: Bearer YOUR_GRAMVISTA_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: order-12882" \\\n  -d '{"sender_id":"YOURBRAND","recipients":["+255712345678"],"message":"Your order is ready."}'`;
+  const code = `curl -X POST https://sscleaiwktklkuxqqndf.supabase.co/functions/v1/public-api/v1/messages \\\n  -H "Authorization: Bearer YOUR_GRAMVISTA_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: order-12882" \\\n  -d '{"sender_id":"YOURBRAND","recipients":["+255712345678"],"message":"Your order is ready."}'`;
   return (
     <>
       <PageTitle
