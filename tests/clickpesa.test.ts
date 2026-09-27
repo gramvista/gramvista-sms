@@ -79,6 +79,23 @@ describe("ClickPesa adapter", () => {
     })).rejects.toThrow("at most 20");
   });
 
+  it("accepts a pending USSD Push as successfully initiated", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ success: true, token: "token" }))
+      .mockResolvedValueOnce(Response.json({
+        id: "payment-2", status: "PENDING",
+        orderReference: "GVS12345678901234567",
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await clickPesaUssdPush({
+      CLICKPESA_CLIENT_ID: "client", CLICKPESA_API_KEY: "key",
+    }, {
+      reference: "GVS12345678901234567", amount: "506", phone: "255712345678",
+    });
+    expect(result.status).toBe("PENDING");
+  });
+
   it("queries only an alphanumeric order reference", async () => {
     const fetchMock = vi
       .fn()

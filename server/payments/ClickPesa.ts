@@ -98,7 +98,7 @@ export async function clickPesaUssdPush(env: Record<string, string | undefined>,
   }
   const data = await response.json();
   if (data.orderReference !== order.reference ||
-      !["PROCESSING", "SUCCESS", "SETTLED"].includes(data.status))
+      !["PENDING", "PROCESSING", "SUCCESS", "SETTLED"].includes(data.status))
     throw new Error("ClickPesa returned an invalid USSD Push response");
   return data as Record<string, unknown>;
 }

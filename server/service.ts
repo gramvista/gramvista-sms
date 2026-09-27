@@ -56,6 +56,10 @@ const errors: Record<string, string> = {
     "Mobile-money payments must be at least TSh 500. Increase the number of SMS credits.",
   PAYMENT_GATEWAY_UNAVAILABLE:
     "The mobile-money payment prompt could not be sent. Check the number or try again later.",
+  PAYMENT_PHONE_UNSUPPORTED:
+    "This mobile-money number or network is not currently supported by ClickPesa.",
+  PAYMENT_CHANNEL_UNAVAILABLE:
+    "The mobile-money network is temporarily unavailable. Try another supported network or try again later.",
   LIVE_SENDING_NOT_READY:
     "Live messaging activation is still in progress. Test messages are available.",
   NO_ELIGIBLE_RECIPIENTS: "No eligible recipients remain after validation.",
@@ -695,10 +699,15 @@ export function makeHandler(
             reference, amount: String(payment.amount), phone: b.customer_phone,
           });
         } catch (error) {
+          const providerMessage = error instanceof Error ? error.message : "unknown";
           console.error(
             "ClickPesa USSD Push initiation failed",
-            error instanceof Error ? error.message : "unknown",
+            providerMessage,
           );
+          if (/invalid \/ unsupported phone number/i.test(providerMessage))
+            throw new ApiError("PAYMENT_PHONE_UNSUPPORTED", 400);
+          if (/no valid payment method|no payment collection methods|unavailable/i.test(providerMessage))
+            throw new ApiError("PAYMENT_CHANNEL_UNAVAILABLE", 503);
           throw new ApiError("PAYMENT_GATEWAY_UNAVAILABLE", 503);
         }
         result = {
