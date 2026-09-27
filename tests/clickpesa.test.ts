@@ -4,9 +4,13 @@ import {
   clickPesaPayments,
   clickPesaToken,
   clickPesaUssdPush,
+  clearClickPesaTokenCache,
 } from "../server/payments/ClickPesa";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  clearClickPesaTokenCache();
+  vi.unstubAllGlobals();
+});
 
 describe("ClickPesa adapter", () => {
   it("authenticates and creates a server-priced hosted checkout", async () => {
@@ -23,6 +27,7 @@ describe("ClickPesa adapter", () => {
       CLICKPESA_CALLBACK_URL: "https://example.com/functions/v1/clickpesa-webhook",
     };
     expect(await clickPesaToken(env)).toBe("Bearer token");
+    clearClickPesaTokenCache();
     const link = await clickPesaCheckout(env, {
       reference: "GVSABC123",
       amount: "22",

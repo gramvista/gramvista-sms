@@ -1,4 +1,5 @@
 const BASE = "https://api.clickpesa.com/third-parties";
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object")
@@ -17,15 +18,32 @@ export async function clickPesaChecksum(secret: string, payload: unknown) {
 export async function clickPesaToken(env: Record<string, string | undefined>) {
   if (!env.CLICKPESA_CLIENT_ID || !env.CLICKPESA_API_KEY)
     throw new Error("ClickPesa is not configured");
+  const cacheKey = env.CLICKPESA_CLIENT_ID + ":" + env.CLICKPESA_API_KEY;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.token;
   const response = await fetch(BASE + "/generate-token", {
     method: "POST",
     headers: { "client-id": env.CLICKPESA_CLIENT_ID, "api-key": env.CLICKPESA_API_KEY },
     signal: AbortSignal.timeout(12000),
   });
-  if (!response.ok) throw new Error("ClickPesa authorization failed");
+  if (!response.ok) {
+    const providerError = await response.text();
+    throw new Error(
+      `ClickPesa authorization failed (${response.status}): ${providerError.slice(0, 500)}`,
+    );
+  }
   const data = await response.json();
   if (!data.success || typeof data.token !== "string") throw new Error("ClickPesa authorization failed");
-  return data.token.startsWith("Bearer ") ? data.token : "Bearer " + data.token;
+  const token = data.token.startsWith("Bearer ") ? data.token : "Bearer " + data.token;
+  // Edge isolates are reused, so caching avoids spending the provider's API
+  // allowance on a new token for every status poll. Stay conservative when
+  // the token lifetime is not published in the response.
+  tokenCache.set(cacheKey, { token, expiresAt: Date.now() + 50 * 60 * 1000 });
+  return token;
+}
+
+export function clearClickPesaTokenCache() {
+  tokenCache.clear();
 }
 
 export async function clickPesaCheckout(env: Record<string, string | undefined>, order: {

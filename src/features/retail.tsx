@@ -45,7 +45,7 @@ export function RetailPurchase() {
       } catch {
         // The manual status button remains available if a polling request fails.
       }
-      if (!stopped) timer = setTimeout(check, 5000);
+      if (!stopped) timer = setTimeout(check, 15000);
     };
     timer = setTimeout(check, 3000);
     return () => {
