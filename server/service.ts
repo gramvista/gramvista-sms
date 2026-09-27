@@ -25,6 +25,7 @@ export class ApiError extends Error {
   constructor(
     public code: string,
     public status = 400,
+    public publicMessage?: string,
   ) {
     super(code);
   }
@@ -708,6 +709,26 @@ export function makeHandler(
             throw new ApiError("PAYMENT_PHONE_UNSUPPORTED", 400);
           if (/no valid payment method|no payment collection methods|unavailable/i.test(providerMessage))
             throw new ApiError("PAYMENT_CHANNEL_UNAVAILABLE", 503);
+          const providerJson = providerMessage.match(/\{[\s\S]*\}$/)?.[0];
+          if (providerJson) {
+            try {
+              const parsed = JSON.parse(providerJson);
+              if (
+                typeof parsed.message === "string" &&
+                parsed.message.length >= 3 &&
+                parsed.message.length <= 200 &&
+                /^[\p{L}\p{N}\s.,'()/_:+-]+$/u.test(parsed.message)
+              ) {
+                throw new ApiError(
+                  "PAYMENT_PROVIDER_REJECTED",
+                  502,
+                  "ClickPesa: " + parsed.message,
+                );
+              }
+            } catch (parseError) {
+              if (parseError instanceof ApiError) throw parseError;
+            }
+          }
           throw new ApiError("PAYMENT_GATEWAY_UNAVAILABLE", 503);
         }
         result = {
@@ -1191,7 +1212,10 @@ export function makeHandler(
         JSON.stringify({
           error: {
             code,
-            message: errors[code] ?? code.toLowerCase().replaceAll("_", " "),
+            message:
+              e instanceof ApiError && e.publicMessage
+                ? e.publicMessage
+                : errors[code] ?? code.toLowerCase().replaceAll("_", " "),
             request_id: requestId,
           },
         }),
