@@ -1482,13 +1482,17 @@ async function processJobsUnlocked(
   let processed = 0;
   let attempted = 0;
   const concurrency = boundedInteger(env.WORKER_SEND_CONCURRENCY, 4, 1, 10);
-  const maxJobs = boundedInteger(env.WORKER_MAX_JOBS, 20, 1, 100);
-  while (attempted < maxJobs && Date.now() <= deadline) {
+  const maxJobs = boundedInteger(env.WORKER_MAX_JOBS, 100, 1, 100);
+  // Do not start another provider wave near the Edge Function deadline. A
+  // submission has a 20-second timeout and an interrupted request is held for
+  // manual reconciliation rather than retried.
+  const claimDeadline = Number.isFinite(deadline) ? deadline - 25000 : deadline;
+  while (attempted < maxJobs && Date.now() <= claimDeadline) {
     const jobs: Row[] = [];
     while (
       jobs.length < concurrency &&
       attempted + jobs.length < maxJobs &&
-      Date.now() <= deadline
+      Date.now() <= claimDeadline
     ) {
       const job = await db.rpc("claim_job", {});
       if (!job) break;
