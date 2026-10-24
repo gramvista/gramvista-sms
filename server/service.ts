@@ -495,6 +495,33 @@ export function makeHandler(
           p_actor: id.userId,
         });
       } else if (
+        resource === "groups" &&
+        item &&
+        action === "contacts" &&
+        method === "POST"
+      ) {
+        requirePermission(id, "contacts.manage");
+        const groupId = uuid.parse(item);
+        if (!(await db.list("contact_groups", { ...scope, id: groupId }))[0])
+          throw new ApiError("NOT_FOUND", 404);
+        const b = resources.contacts.schema!.parse(await body());
+        b.normalized_phone = b.phone;
+        const contact = await db.insert("contacts", { ...scope, ...b });
+        try {
+          await db.insert("contact_group_members", {
+            ...scope,
+            group_id: groupId,
+            contact_id: contact.id,
+          });
+        } catch (error) {
+          await db.remove("contacts", { ...scope, id: contact.id });
+          throw error;
+        }
+        await audit("group.contact_created", contact.id, {
+          group_id: groupId,
+        });
+        result = contact;
+      } else if (
         resource === "campaigns" &&
         item &&
         action === "messages" &&
@@ -609,10 +636,12 @@ export function makeHandler(
         };
       } else if (resource === "orders" && item && method === "GET") {
         requirePermission(id, "wallet.read");
-        const payment = (await db.list("payments", {
-          id: uuid.parse(item),
-          organization_id: org,
-        }))[0];
+        const payment = (
+          await db.list("payments", {
+            id: uuid.parse(item),
+            organization_id: org,
+          })
+        )[0];
         if (!payment) throw new ApiError("NOT_FOUND", 404);
         result = {
           payment,
@@ -620,13 +649,19 @@ export function makeHandler(
           reviews: await db.list("payment_reviews", { payment_id: payment.id }),
         };
       } else if (
-        resource === "orders" && item && action === "payment" && method === "POST"
+        resource === "orders" &&
+        item &&
+        action === "payment" &&
+        method === "POST"
       ) {
         requirePermission(id, "wallet.read");
-        const b = z.object({
-          method: z.enum(["bank_transfer", "mobile_money", "manual"]),
-          reference: z.string().trim().min(3).max(120),
-        }).strict().parse(await body());
+        const b = z
+          .object({
+            method: z.enum(["bank_transfer", "mobile_money", "manual"]),
+            reference: z.string().trim().min(3).max(120),
+          })
+          .strict()
+          .parse(await body());
         result = await db.rpc("submit_order_payment", {
           p_org: org,
           p_id: uuid.parse(item),
@@ -650,64 +685,93 @@ export function makeHandler(
       } else if (resource === "clickpesa-payment" && item && method === "GET") {
         requirePermission(id, "wallet.read");
         if (id.apiKeyId) throw new ApiError("FORBIDDEN", 403);
-        const payment = (await db.list("payments", {
-          id: uuid.parse(item), organization_id: org, method: "clickpesa",
-        }))[0];
+        const payment = (
+          await db.list("payments", {
+            id: uuid.parse(item),
+            organization_id: org,
+            method: "clickpesa",
+          })
+        )[0];
         if (!payment) throw new ApiError("NOT_FOUND", 404);
         if (payment.status === "pending") {
           const reference = payment.payment_reference;
           if (typeof reference !== "string")
             throw new ApiError("PAYMENT_REFERENCE_MISSING", 500);
           const entries = await clickPesaPayments(env, reference);
-          const match = entries.find((entry) =>
-            entry.orderReference === reference &&
-            (entry.status === "SUCCESS" || entry.status === "SETTLED") &&
-            entry.clientId === env.CLICKPESA_CLIENT_ID &&
-            typeof entry.paymentReference === "string" &&
-            entry.collectedCurrency === payment.currency &&
-            /^\d+(?:\.\d{1,2})?$/.test(String(entry.collectedAmount)) &&
-            Number(entry.collectedAmount) === Number(payment.amount));
-          if (match) await db.rpc("settle_clickpesa_payment", {
-            p_reference: reference, p_transaction: match.paymentReference,
-            p_amount: match.collectedAmount, p_currency: match.collectedCurrency,
-          });
+          const match = entries.find(
+            (entry) =>
+              entry.orderReference === reference &&
+              (entry.status === "SUCCESS" || entry.status === "SETTLED") &&
+              entry.clientId === env.CLICKPESA_CLIENT_ID &&
+              typeof entry.paymentReference === "string" &&
+              entry.collectedCurrency === payment.currency &&
+              /^\d+(?:\.\d{1,2})?$/.test(String(entry.collectedAmount)) &&
+              Number(entry.collectedAmount) === Number(payment.amount),
+          );
+          if (match)
+            await db.rpc("settle_clickpesa_payment", {
+              p_reference: reference,
+              p_transaction: match.paymentReference,
+              p_amount: match.collectedAmount,
+              p_currency: match.collectedCurrency,
+            });
         }
-        result = (await db.list("payments", { id: payment.id, organization_id: org }))[0];
+        result = (
+          await db.list("payments", { id: payment.id, organization_id: org })
+        )[0];
       } else if (resource === "clickpesa-checkout" && method === "POST") {
         requirePermission(id, "wallet.read");
-        if (id.apiKeyId || env.LOCAL_DEMO === "true") throw new ApiError("FORBIDDEN", 403);
+        if (id.apiKeyId || env.LOCAL_DEMO === "true")
+          throw new ApiError("FORBIDDEN", 403);
         if (!env.CLICKPESA_CLIENT_ID || !env.CLICKPESA_API_KEY)
           throw new ApiError("PAYMENT_GATEWAY_NOT_READY", 503);
-        const b = z.object({
-          sms_units: z.number().int().safe().positive(),
-          customer_phone: z.string().regex(/^255\d{9}$/),
-        }).strict().parse(await body());
-        const priceTier = (await db.list("sms_price_tiers", { active: true }))
-          .find((tier) =>
+        const b = z
+          .object({
+            sms_units: z.number().int().safe().positive(),
+            customer_phone: z.string().regex(/^255\d{9}$/),
+          })
+          .strict()
+          .parse(await body());
+        const priceTier = (
+          await db.list("sms_price_tiers", { active: true })
+        ).find(
+          (tier) =>
             b.sms_units >= Number(tier.min_units) &&
-            b.sms_units <= Number(tier.max_units));
+            b.sms_units <= Number(tier.max_units),
+        );
         if (!priceTier) throw new ApiError("CUSTOM_QUOTE_REQUIRED", 400);
         if (b.sms_units * Number(priceTier.price_per_unit) < 500)
           throw new ApiError("PAYMENT_AMOUNT_BELOW_MINIMUM", 400);
         // ClickPesa mobile-money providers cap order references at 20 characters.
-        const reference = "GVS" + crypto.randomUUID().replace(/-/g, "").toUpperCase().slice(0, 17);
+        const reference =
+          "GVS" +
+          crypto.randomUUID().replace(/-/g, "").toUpperCase().slice(0, 17);
         const payment = await db.rpc("create_clickpesa_payment", {
-          p_org: org, p_units: b.sms_units, p_reference: reference,
+          p_org: org,
+          p_units: b.sms_units,
+          p_reference: reference,
         });
         let push: Record<string, unknown>;
         try {
           push = await clickPesaUssdPush(env, {
-            reference, amount: String(payment.amount), phone: b.customer_phone,
+            reference,
+            amount: String(payment.amount),
+            phone: b.customer_phone,
           });
         } catch (error) {
-          const providerMessage = error instanceof Error ? error.message : "unknown";
+          const providerMessage =
+            error instanceof Error ? error.message : "unknown";
           console.error(
             "ClickPesa USSD Push initiation failed",
             providerMessage,
           );
           if (/invalid \/ unsupported phone number/i.test(providerMessage))
             throw new ApiError("PAYMENT_PHONE_UNSUPPORTED", 400);
-          if (/no valid payment method|no payment collection methods|unavailable/i.test(providerMessage))
+          if (
+            /no valid payment method|no payment collection methods|unavailable/i.test(
+              providerMessage,
+            )
+          )
             throw new ApiError("PAYMENT_CHANNEL_UNAVAILABLE", 503);
           const providerJson = providerMessage.match(/\{[\s\S]*\}$/)?.[0];
           if (providerJson) {
@@ -852,16 +916,24 @@ export function makeHandler(
             }),
           };
         } else if (method === "GET" && item === "order-detail" && action) {
-          const payment = (await db.list("payments", { id: uuid.parse(action) }))[0];
+          const payment = (
+            await db.list("payments", { id: uuid.parse(action) })
+          )[0];
           if (!payment) throw new ApiError("NOT_FOUND", 404);
           result = {
             payment,
-            organization: (await db.list("organizations", {
-              id: payment.organization_id,
-            }))[0],
+            organization: (
+              await db.list("organizations", {
+                id: payment.organization_id,
+              })
+            )[0],
             events: await db.list("order_events", { payment_id: payment.id }),
-            reviews: await db.list("payment_reviews", { payment_id: payment.id }),
-            invoice: (await db.list("invoices", { payment_id: payment.id }))[0] ?? null,
+            reviews: await db.list("payment_reviews", {
+              payment_id: payment.id,
+            }),
+            invoice:
+              (await db.list("invoices", { payment_id: payment.id }))[0] ??
+              null,
             inventory: await db.rpc("inventory_status", {}),
           };
         } else if (method === "GET") {
@@ -915,13 +987,20 @@ export function makeHandler(
             p_type: b.units > 0 ? "manual_credit" : "manual_debit",
           });
         } else if (item === "correction" && method === "POST") {
-          const b = z.object({
-            organization_id: uuid,
-            units: z.number().int().safe().refine((v) => v !== 0),
-            reference: z.string().trim().min(3).max(120),
-            reason: z.string().trim().min(3).max(2000),
-            confirmed: z.literal(true),
-          }).strict().parse(await body());
+          const b = z
+            .object({
+              organization_id: uuid,
+              units: z
+                .number()
+                .int()
+                .safe()
+                .refine((v) => v !== 0),
+              reference: z.string().trim().min(3).max(120),
+              reason: z.string().trim().min(3).max(2000),
+              confirmed: z.literal(true),
+            })
+            .strict()
+            .parse(await body());
           try {
             result = await db.rpc("wallet_adjust", {
               p_org: b.organization_id,
@@ -942,12 +1021,15 @@ export function makeHandler(
             throw error;
           }
         } else if (item === "wallet-reset" && action && method === "POST") {
-          const b = z.object({
-            expected_available: z.number().int().safe().positive(),
-            reference: z.string().trim().min(3).max(120),
-            reason: z.string().trim().min(10).max(2000),
-            confirmation: z.literal("RESET"),
-          }).strict().parse(await body());
+          const b = z
+            .object({
+              expected_available: z.number().int().safe().positive(),
+              reference: z.string().trim().min(3).max(120),
+              reason: z.string().trim().min(10).max(2000),
+              confirmation: z.literal("RESET"),
+            })
+            .strict()
+            .parse(await body());
           result = await db.rpc("reset_sms_wallet", {
             p_org: uuid.parse(action),
             p_expected_available: b.expected_available,
@@ -957,26 +1039,33 @@ export function makeHandler(
             p_actor: id.userId,
           });
         } else if (item === "payments" && action && method === "POST") {
-          const payment = (await db.list("payments", { id: uuid.parse(action) }))[0];
+          const payment = (
+            await db.list("payments", { id: uuid.parse(action) })
+          )[0];
           if (!payment) throw new ApiError("NOT_FOUND", 404);
           if (payment.method === "clickpesa")
             throw new ApiError("CLICKPESA_REQUIRES_PROVIDER_CONFIRMATION", 409);
-          const b = z.object({
-            decision: z.enum(["approved", "rejected"]),
-            received_amount: z.union([z.string(), z.number()]).optional(),
-            currency: z.string().length(3).optional(),
-            receipt_reference: z.string().trim().min(3).max(120).optional(),
-            notes: z.string().trim().min(3).max(2000),
-            confirmed: z.boolean().optional(),
-          }).strict().parse(await body());
+          const b = z
+            .object({
+              decision: z.enum(["approved", "rejected"]),
+              received_amount: z.union([z.string(), z.number()]).optional(),
+              currency: z.string().length(3).optional(),
+              receipt_reference: z.string().trim().min(3).max(120).optional(),
+              notes: z.string().trim().min(3).max(2000),
+              confirmed: z.boolean().optional(),
+            })
+            .strict()
+            .parse(await body());
           result = await db.rpc("review_order", {
             p_id: payment.id,
             p_decision: b.decision,
-            p_received: b.decision === "approved" ? Number(b.received_amount) : null,
+            p_received:
+              b.decision === "approved" ? Number(b.received_amount) : null,
             p_currency: b.decision === "approved" ? b.currency : null,
             p_receipt: b.decision === "approved" ? b.receipt_reference : null,
             p_notes: b.notes,
-            p_confirmed: b.decision === "approved" ? b.confirmed === true : false,
+            p_confirmed:
+              b.decision === "approved" ? b.confirmed === true : false,
             p_actor: id.userId,
           });
         } else if (item === "senders" && action && method === "PATCH") {
@@ -1095,8 +1184,8 @@ export function makeHandler(
               url.searchParams.get("campaign_id"),
             );
           const rows = await db.list(r.table, filters, {
-            limit: 50,
-            offset: pageOffset(url),
+            limit: pageSize(url),
+            offset: pageOffset(url, pageSize(url)),
             order: ["contact_group_members", "organization_members"].includes(
               r.table,
             )
@@ -1112,7 +1201,7 @@ export function makeHandler(
             : {
                 data: safe,
                 page: Number(url.searchParams.get("page") ?? 1),
-                has_more: rows.length === 50,
+                has_more: rows.length === pageSize(url),
               };
         } else if (
           method === "PATCH" &&
@@ -1157,11 +1246,19 @@ export function makeHandler(
         ) {
           requirePermission(id, r.write);
           if (resource === "contacts") {
-            await db.update(
-              "contacts",
-              { ...scope, id: uuid.parse(item) },
-              { status: "archived" },
-            );
+            const contactId = uuid.parse(item);
+            if (!(await db.list("contacts", { ...scope, id: contactId }))[0])
+              throw new ApiError("NOT_FOUND", 404);
+            await db.remove("contact_group_members", {
+              ...scope,
+              contact_id: contactId,
+            });
+            await db.remove("contact_tags", {
+              ...scope,
+              contact_id: contactId,
+            });
+            await db.remove("contacts", { ...scope, id: contactId });
+            await audit("contact.deleted", contactId);
           } else await db.remove(r.table, { ...scope, id: uuid.parse(item) });
           result = { success: true };
         } else throw new ApiError("METHOD_NOT_ALLOWED", 405);
@@ -1215,7 +1312,7 @@ export function makeHandler(
             message:
               e instanceof ApiError && e.publicMessage
                 ? e.publicMessage
-                : errors[code] ?? code.toLowerCase().replaceAll("_", " "),
+                : (errors[code] ?? code.toLowerCase().replaceAll("_", " ")),
             request_id: requestId,
           },
         }),
@@ -1224,10 +1321,16 @@ export function makeHandler(
     }
   };
 }
-function pageOffset(url: URL) {
+function pageSize(url: URL) {
+  const requested = Number(url.searchParams.get("per_page") ?? 50);
+  return Number.isInteger(requested) && requested > 0
+    ? Math.min(requested, 1000)
+    : 50;
+}
+function pageOffset(url: URL, size = 50) {
   const page = Number(url.searchParams.get("page") ?? 1);
   return (
-    (Number.isInteger(page) && page > 0 && page < 100000 ? page - 1 : 0) * 50
+    (Number.isInteger(page) && page > 0 && page < 100000 ? page - 1 : 0) * size
   );
 }
 export function validateWebhookUrl(value: string, env: Environment) {
@@ -1248,13 +1351,16 @@ export function validateWebhookUrl(value: string, env: Environment) {
 }
 export async function syncBalance(db: Database, env: Environment) {
   const p = getProvider(env);
+  const startedAt = new Date().toISOString();
+  const usage = await db.rpc("inventory_sync_watermark", {});
   try {
     const b = await p.getBalance();
-    return await db.insert("provider_balance_snapshots", {
-      provider: p.code,
-      balance_sms: b.totalSms,
-      success: true,
-      raw_response_json: b.raw,
+    return await db.rpc("record_inventory_snapshot", {
+      p_provider: p.code,
+      p_balance: b.totalSms,
+      p_usage: Number(usage),
+      p_started: startedAt,
+      p_raw: b.raw,
     });
   } catch {
     await db.insert("provider_balance_snapshots", {
@@ -1284,14 +1390,16 @@ export async function reconcileClickPesaPayments(
     if (typeof reference !== "string") continue;
     try {
       const entries = await clickPesaPayments(env, reference);
-      const match = entries.find((entry) =>
-        entry.orderReference === reference &&
-        (entry.status === "SUCCESS" || entry.status === "SETTLED") &&
-        entry.clientId === env.CLICKPESA_CLIENT_ID &&
-        typeof entry.paymentReference === "string" &&
-        entry.collectedCurrency === payment.currency &&
-        /^\d+(?:\.\d{1,2})?$/.test(String(entry.collectedAmount)) &&
-        Number(entry.collectedAmount) === Number(payment.amount));
+      const match = entries.find(
+        (entry) =>
+          entry.orderReference === reference &&
+          (entry.status === "SUCCESS" || entry.status === "SETTLED") &&
+          entry.clientId === env.CLICKPESA_CLIENT_ID &&
+          typeof entry.paymentReference === "string" &&
+          entry.collectedCurrency === payment.currency &&
+          /^\d+(?:\.\d{1,2})?$/.test(String(entry.collectedAmount)) &&
+          Number(entry.collectedAmount) === Number(payment.amount),
+      );
       if (!match) continue;
       await db.rpc("settle_clickpesa_payment", {
         p_reference: reference,
@@ -1372,123 +1480,146 @@ async function processJobsUnlocked(
 ) {
   await db.rpc("hold_stale_jobs", {});
   let processed = 0;
-  for (let i = 0; i < 5; i++) {
-    if (Date.now() > deadline) break;
-    const job = await db.rpc("claim_job", {});
-    if (!job) break;
-    const campaign = (await db.list("campaigns", { id: job.campaign_id }))[0];
-    let submissionStarted = false;
-    try {
-      const invalid = await db.rpc("validate_job", { p_job: job.id });
-      if (invalid) throw new ApiError(invalid);
-      const provider = getProvider(env, campaign.test_mode);
-      const sender = (
-        await db.list("sender_ids", { id: campaign.sender_id_id })
-      )[0];
-      if (sender.status !== "approved")
-        throw new ApiError("SENDER_ID_NOT_APPROVED");
-      if (provider.code === "kilakona") {
-        if (
-          env.KILAKONA_BILLING_CONFIRMED !== "true" ||
-          !kilakonaLiveAllowed(env)
-        )
-          throw new ApiError("PROVIDER_CONFIGURATION_REQUIRED");
-        // Customer wallet credit authorizes a send attempt. Inventory snapshots
-        // remain an administrative warning and allocation guard, but a stale
-        // snapshot must not reject an already-funded customer's queued message.
-        // Kilakona's authenticated response remains authoritative at submission.
-      }
-      const messages = await db.list(
-        "messages",
-        { job_id: job.id },
-        { limit: 10000 },
-      );
-      const suppressed = await db.list(
-        "suppression_list",
-        { organization_id: job.organization_id },
-        { limit: 10000 },
-      );
+  let attempted = 0;
+  const concurrency = boundedInteger(env.WORKER_SEND_CONCURRENCY, 4, 1, 10);
+  const maxJobs = boundedInteger(env.WORKER_MAX_JOBS, 20, 1, 100);
+  while (attempted < maxJobs && Date.now() <= deadline) {
+    const jobs: Row[] = [];
+    while (
+      jobs.length < concurrency &&
+      attempted + jobs.length < maxJobs &&
+      Date.now() <= deadline
+    ) {
+      const job = await db.rpc("claim_job", {});
+      if (!job) break;
+      jobs.push(job);
+    }
+    if (!jobs.length) break;
+    attempted += jobs.length;
+    const results = await Promise.all(
+      jobs.map((job) => processClaimedJob(db, env, job)),
+    );
+    processed += results.filter(Boolean).length;
+  }
+  return { processed, attempted, concurrency };
+}
+
+function boundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum
+    ? Math.min(parsed, maximum)
+    : fallback;
+}
+
+async function processClaimedJob(db: Database, env: Environment, job: Row) {
+  const campaign = (await db.list("campaigns", { id: job.campaign_id }))[0];
+  let submissionStarted = false;
+  try {
+    const invalid = await db.rpc("validate_job", { p_job: job.id });
+    if (invalid) throw new ApiError(invalid);
+    const provider = getProvider(env, campaign.test_mode);
+    const sender = (
+      await db.list("sender_ids", { id: campaign.sender_id_id })
+    )[0];
+    if (sender.status !== "approved")
+      throw new ApiError("SENDER_ID_NOT_APPROVED");
+    if (provider.code === "kilakona") {
       if (
-        messages.some((m) =>
-          suppressed.some((s) => s.normalized_phone === m.normalized_phone),
-        )
+        env.KILAKONA_BILLING_CONFIRMED !== "true" ||
+        !kilakonaLiveAllowed(env)
       )
-        throw new ApiError("RECIPIENT_SUPPRESSED_AFTER_QUEUE");
-      const organization = (
-        await db.list("organizations", { id: job.organization_id })
-      )[0];
-      if (organization.status !== "active")
-        throw new ApiError("ORGANIZATION_SUSPENDED");
-      const hour = Number(
-        new Intl.DateTimeFormat("en-GB", {
-          timeZone: organization.timezone,
-          hour: "2-digit",
-          hourCycle: "h23",
-        }).format(new Date()),
-      );
-      const quiet =
-        organization.quiet_hours_enabled === true &&
-        (organization.quiet_start === organization.quiet_end
-          ? false
-          : organization.quiet_start > organization.quiet_end
-            ? hour >= organization.quiet_start || hour < organization.quiet_end
-            : hour >= organization.quiet_start && hour < organization.quiet_end);
-      if (quiet && !campaign.test_mode) throw new ApiError("QUIET_HOURS");
-      submissionStarted = true;
-      const result = await provider.sendMessage({
-        senderId: sender.sender_name,
-        message: campaign.message,
-        recipients: messages.map((m) => m.normalized_phone),
-        callbackUrl:
-          env.GRAMVISTA_DELIVERY_CALLBACK_URL ??
-          "https://api.sms.gramvistaempire.com/webhooks/kilakona/delivery",
-      });
-      await db.rpc("settle_job", {
-        p_job: job.id,
-        p_provider: provider.code,
-        p_reference: result.reference,
-        p_valid: result.validContacts,
-        p_invalid: result.invalidContacts,
-        p_duplicates: result.duplicatedContacts,
-        p_size: result.messageSize,
-        p_raw: result.raw,
-      });
-      for (const m of messages)
-        await enqueueEvent(
-          db,
-          job.organization_id,
-          "message.submitted",
-          m.message_reference + ":submitted",
-          {
-            id: m.message_reference,
-            status: "submitted",
-            test_mode: campaign.test_mode,
-          },
+        throw new ApiError("PROVIDER_CONFIGURATION_REQUIRED");
+      // Customer wallet credit authorizes a send attempt. Inventory snapshots
+      // remain an administrative warning and allocation guard, but a stale
+      // snapshot must not reject an already-funded customer's queued message.
+      // Kilakona's authenticated response remains authoritative at submission.
+    }
+    const messages = await db.list(
+      "messages",
+      { job_id: job.id },
+      { limit: 10000 },
+    );
+    const suppressed = await db.list(
+      "suppression_list",
+      { organization_id: job.organization_id },
+      { limit: 10000 },
+    );
+    if (
+      messages.some((m) =>
+        suppressed.some((s) => s.normalized_phone === m.normalized_phone),
+      )
+    )
+      throw new ApiError("RECIPIENT_SUPPRESSED_AFTER_QUEUE");
+    const organization = (
+      await db.list("organizations", { id: job.organization_id })
+    )[0];
+    if (organization.status !== "active")
+      throw new ApiError("ORGANIZATION_SUSPENDED");
+    const hour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: organization.timezone,
+        hour: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date()),
+    );
+    const quiet =
+      organization.quiet_hours_enabled === true &&
+      (organization.quiet_start === organization.quiet_end
+        ? false
+        : organization.quiet_start > organization.quiet_end
+          ? hour >= organization.quiet_start || hour < organization.quiet_end
+          : hour >= organization.quiet_start && hour < organization.quiet_end);
+    if (quiet && !campaign.test_mode) throw new ApiError("QUIET_HOURS");
+    submissionStarted = true;
+    const result = await provider.sendMessage({
+      senderId: sender.sender_name,
+      message: campaign.message,
+      recipients: messages.map((m) => m.normalized_phone),
+      callbackUrl:
+        env.GRAMVISTA_DELIVERY_CALLBACK_URL ??
+        "https://api.sms.gramvistaempire.com/webhooks/kilakona/delivery",
+    });
+    await db.rpc("settle_job", {
+      p_job: job.id,
+      p_provider: provider.code,
+      p_reference: result.reference,
+      p_valid: result.validContacts,
+      p_invalid: result.invalidContacts,
+      p_duplicates: result.duplicatedContacts,
+      p_size: result.messageSize,
+      p_raw: result.raw,
+    });
+    // settle_job updates all messages in one database operation. The
+    // message_delivery_outbox trigger creates submitted webhook events in the
+    // same transaction, so no per-recipient network round trips are needed.
+    return true;
+  } catch (e) {
+    const code =
+      e instanceof ApiError ? e.code : "PROVIDER_SUBMISSION_UNCERTAIN";
+    if (!submissionStarted) {
+      await db.rpc("release_job", { p_job: job.id, p_reason: code });
+    } else {
+      const current = (await db.list("campaign_jobs", { id: job.id }))[0];
+      if (current.status !== "submitted") {
+        await db.update(
+          "campaign_jobs",
+          { id: job.id },
+          { status: "held", last_error: code },
         );
-      processed++;
-    } catch (e) {
-      const code =
-        e instanceof ApiError ? e.code : "PROVIDER_SUBMISSION_UNCERTAIN";
-      if (!submissionStarted) {
-        await db.rpc("release_job", { p_job: job.id, p_reason: code });
-      } else {
-        const current = (await db.list("campaign_jobs", { id: job.id }))[0];
-        if (current.status !== "submitted") {
-          await db.update(
-            "campaign_jobs",
-            { id: job.id },
-            { status: "held", last_error: code },
-          );
-          await db.update(
-            "campaigns",
-            { id: job.campaign_id },
-            { status: "partially_completed" },
-          );
-        }
+        await db.update(
+          "campaigns",
+          { id: job.campaign_id },
+          { status: "partially_completed" },
+        );
       }
     }
+    return false;
   }
-  return { processed };
 }
 export async function reconcile(
   db: Database,

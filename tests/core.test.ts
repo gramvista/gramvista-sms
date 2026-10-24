@@ -491,6 +491,87 @@ describe("database accounting and tenant security", () => {
   });
 });
 describe("public API authorization", () => {
+  it("supports large contact pages for bulk audience selection", async () => {
+    const res = await request("contacts?page=1&per_page=250");
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(1);
+  });
+  it("creates contacts directly in groups and supports edit and delete", async () => {
+    const group = await request("groups", "POST", {
+      name: "Direct entry group",
+      description: "Created in API test",
+    });
+    const created = await request(
+      "groups/" + group.body.id + "/contacts",
+      "POST",
+      {
+        first_name: "Neema",
+        last_name: "Customer",
+        phone: "+255713456789",
+        email: "neema@example.test",
+      },
+    );
+    expect(created.status).toBe(201);
+    const membership = (
+      await db.list("contact_group_members", {
+        organization_id: orgA,
+        contact_id: created.body.id,
+      })
+    )[0];
+    expect(membership.group_id).toBe(group.body.id);
+    const edited = await request("contacts/" + created.body.id, "PATCH", {
+      first_name: "Neema Updated",
+      last_name: "Customer",
+      phone: "+255713456789",
+      email: "neema@example.test",
+    });
+    expect(edited.body.first_name).toBe("Neema Updated");
+    expect(
+      (await request("contacts/" + created.body.id, "DELETE")).status,
+    ).toBe(200);
+    expect(await db.list("contacts", { id: created.body.id })).toHaveLength(0);
+    expect(
+      await db.list("contact_group_members", { contact_id: created.body.id }),
+    ).toHaveLength(0);
+  });
+  it("queues and processes more than 50 recipients in parallel batches", async () => {
+    const recipients = Array.from(
+      { length: 120 },
+      (_, index) => "+25568" + String(index + 1).padStart(7, "0"),
+    );
+    const queued = await request(
+      "campaigns",
+      "POST",
+      {
+        sender_id: "BRANDA",
+        name: "120 recipient bulk test",
+        recipients,
+        message: "Bulk delivery test",
+        test_mode: true,
+      },
+      "bulk-120-" + crypto.randomUUID(),
+    );
+    expect(queued.status).toBe(201);
+    expect(queued.body.recipients).toBe(120);
+    expect(
+      await db.list("campaign_jobs", { campaign_id: queued.body.campaign_id }),
+    ).toHaveLength(2);
+    const result = await processJobs(db, {
+      SMS_PROVIDER: "mock",
+      LOCAL_DEMO: "true",
+      WORKER_SEND_CONCURRENCY: "4",
+    });
+    expect(result).toMatchObject({ processed: 2, concurrency: 4 });
+    expect(
+      (
+        await db.list(
+          "messages",
+          { campaign_id: queued.body.campaign_id },
+          { limit: 1000 },
+        )
+      ).every((message) => message.status === "submitted"),
+    ).toBe(true);
+  });
   it("balance returns the customer wallet", async () => {
     await db.insert("provider_balance_snapshots", {
       provider: "mock",
@@ -682,9 +763,13 @@ describe("recovery, invitations and hosted routing", () => {
     await reconcile(db, { SMS_PROVIDER: "mock", LOCAL_DEMO: "true" });
     await reconcile(db, { SMS_PROVIDER: "mock", LOCAL_DEMO: "true" });
     const m = (await db.list("messages", { campaign_id: c.campaign_id }))[0];
-    const events = await db.list("webhook_deliveries", {
-      organization_id: orgA,
-    });
+    const events = await db.list(
+      "webhook_deliveries",
+      {
+        organization_id: orgA,
+      },
+      { limit: 10000 },
+    );
     expect(
       events.filter((e) => e.event_key === m.message_reference + ":delivered"),
     ).toHaveLength(1);

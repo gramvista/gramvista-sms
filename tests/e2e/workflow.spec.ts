@@ -46,6 +46,13 @@ test("organization → credit → approved sender → contact → campaign → d
       quiet_end: 0,
     },
   });
+  expect(
+    (
+      await request.post("/api/v1/platform/sync-balance", {
+        headers: { "X-Demo-Role": "platform" },
+      })
+    ).ok(),
+  ).toBe(true);
   await page.goto("/platform");
   await page
     .getByRole("button", { name: "Adjust wallet", exact: true })
@@ -78,9 +85,13 @@ test("organization → credit → approved sender → contact → campaign → d
   await page.getByLabel("Contact email").fill("hello@acacia.test");
   await page.getByRole("button", { name: "Save Sender ID request" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  expect((await request.post("/api/v1/platform/sync-balance", {
-    headers: { "X-Demo-Role": "platform" },
-  })).ok()).toBe(true);
+  expect(
+    (
+      await request.post("/api/v1/platform/sync-balance", {
+        headers: { "X-Demo-Role": "platform" },
+      })
+    ).ok(),
+  ).toBe(true);
   await page.goto("/platform");
   await page.getByRole("button", { name: "senders", exact: true }).click();
   await page
@@ -198,6 +209,13 @@ test("packages, manual verification and all customer pages", async ({
     .fill(reference);
   await page.getByRole("button", { name: "Submit for verification" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(
+    (
+      await request.post("/api/v1/platform/sync-balance", {
+        headers: { "X-Demo-Role": "platform" },
+      })
+    ).ok(),
+  ).toBe(true);
   await page.goto("/platform");
   await page.getByRole("button", { name: "payments", exact: true }).click();
   await page
@@ -209,8 +227,12 @@ test("packages, manual verification and all customer pages", async ({
   await review.getByLabel(/Amount received/).fill("1000.00");
   await review.getByLabel("Verified receipt reference").fill(reference);
   await review.getByLabel(/I checked/).check();
-  await review.getByLabel("Review notes / rejection reason").fill("E2E verified receipt");
-  await review.getByRole("button", { name: "Confirm approval and allocation" }).click();
+  await review
+    .getByLabel("Review notes / rejection reason")
+    .fill("E2E verified receipt");
+  await review
+    .getByRole("button", { name: "Confirm approval and allocation" })
+    .click();
   await expect(review.getByText("Payment verified.")).toBeVisible();
   for (const route of [
     "campaigns",
@@ -307,9 +329,13 @@ test("retail quantity pricing and verified wallet top-up", async ({
   expect(created.status()).toBe(201);
   const pending = await (await request.get("/api/v1/balance")).json();
   expect(pending.available_sms).toBe(before.available_sms);
-  expect((await request.post("/api/v1/platform/sync-balance", {
-    headers: { "X-Demo-Role": "platform" },
-  })).ok()).toBe(true);
+  expect(
+    (
+      await request.post("/api/v1/platform/sync-balance", {
+        headers: { "X-Demo-Role": "platform" },
+      })
+    ).ok(),
+  ).toBe(true);
   await page.goto("/platform");
   await page.getByRole("button", { name: "payments", exact: true }).click();
   await page
@@ -321,8 +347,12 @@ test("retail quantity pricing and verified wallet top-up", async ({
   await review.getByLabel(/Amount received/).fill("600000");
   await review.getByLabel("Verified receipt reference").fill(reference);
   await review.getByLabel(/I checked/).check();
-  await review.getByLabel("Review notes / rejection reason").fill("E2E verified receipt");
-  await review.getByRole("button", { name: "Confirm approval and allocation" }).click();
+  await review
+    .getByLabel("Review notes / rejection reason")
+    .fill("E2E verified receipt");
+  await review
+    .getByRole("button", { name: "Confirm approval and allocation" })
+    .click();
   await expect(review.getByText("Payment verified.")).toBeVisible();
   const after = await (await request.get("/api/v1/balance")).json();
   expect(Number(after.available_sms)).toBe(
@@ -336,4 +366,66 @@ test("retail quantity pricing and verified wallet top-up", async ({
     ),
   ).toBe(true);
   await page.screenshot({ path: ".local/retail-mobile.png", fullPage: true });
+});
+
+test("bulk contact selection and direct group contact management", async ({
+  page,
+  request,
+}) => {
+  for (let index = 1; index <= 55; index++) {
+    const response = await request.post("/api/v1/contacts", {
+      data: {
+        first_name: "Bulk " + index,
+        last_name: "Contact",
+        phone: "+25569" + String(index).padStart(7, "0"),
+        email: "",
+      },
+    });
+    expect(response.status()).toBe(201);
+  }
+  await page.goto("/campaigns/new");
+  await page.getByRole("button", { name: "Contacts", exact: true }).click();
+  const selectAll = page.getByRole("button", { name: /Select all \d+/ });
+  await expect(selectAll).toBeVisible();
+  const available = Number((await selectAll.textContent())?.match(/\d+/)?.[0]);
+  expect(available).toBeGreaterThan(50);
+  await selectAll.click();
+  await expect(
+    page.getByText(available + " selected from " + available),
+  ).toBeVisible();
+
+  const group = await (
+    await request.post("/api/v1/groups", {
+      data: { name: "Direct entry " + Date.now(), description: "E2E group" },
+    })
+  ).json();
+  await page.goto("/groups");
+  await page
+    .getByRole("row")
+    .filter({ hasText: group.name })
+    .getByRole("button", { name: "View group" })
+    .click();
+  await page.getByLabel("First name").fill("Direct");
+  await page.getByLabel("Last name").fill("Member");
+  await page.getByLabel("Phone number").fill("+255714567890");
+  await page.getByLabel("Email").fill("direct.member@example.test");
+  await page.getByRole("button", { name: "Create and add to group" }).click();
+  await expect(
+    page.locator(".member-row").filter({ hasText: "+255714567890" }),
+  ).toBeVisible();
+
+  await page.goto("/contacts");
+  const contactRow = page.getByRole("row").filter({ hasText: "+255714567890" });
+  await contactRow.getByRole("button", { name: "View contact" }).click();
+  await page.getByRole("button", { name: "Edit contact" }).click();
+  await page.getByLabel("First name").fill("Direct Updated");
+  await page.getByRole("button", { name: "Save contact" }).click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "contact details" })
+      .getByText("Direct Updated"),
+  ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete contact" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
 });

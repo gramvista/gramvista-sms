@@ -58,6 +58,11 @@ for (const migration of [
     await pg.query("insert into _local_migrations values ($1)", [migration]);
   }
 }
+// The isolated demo always uses simulated inventory and must never point its
+// accounting guard at the production provider.
+await pg.exec(
+  "update private.sms_bank set provider='mock',reconciled_units=0 where singleton",
+);
 const env = { SMS_PROVIDER: "mock", LOCAL_DEMO: "true" };
 const handler = makeHandler(
   db,

@@ -1608,6 +1608,28 @@ legend {
   margin-bottom: 20px;
   padding: 10px;
 }
+.contact-selector-tools,
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.contact-selector-tools {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  padding: 10px 0;
+  background: var(--surface, #fff);
+}
+.contact-selector-tools input {
+  flex: 1;
+  min-width: 140px;
+  margin: 0;
+}
+.form-actions {
+  flex-wrap: wrap;
+}
 .contact-selector span {
   color: #95a4b8;
 }

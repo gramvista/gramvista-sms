@@ -50,7 +50,9 @@ Local demo data created during browser validation is clearly labeled and lives o
 - Atomic wallet reservations and settlements, immutable ledger, idempotent manual credits and payment verification.
 - Sender ID review workflow and private Supabase document storage.
 - Contacts, CSV mapping/validation/import, groups, suppression, templates and scheduled campaigns.
-- Durable campaign batches, conservative handling of ambiguous provider submissions, normalized delivery reconciliation.
+- Bulk audience selection up to 10,000 recipients, including all paginated contacts and group members.
+- Durable provider-sized campaign batches with configurable bounded parallel dispatch, conservative handling of ambiguous provider submissions, and normalized delivery reconciliation.
+- Organization-scoped contact editing/deletion and direct creation of contacts inside a group.
 - Provider abstraction with mock and real Kilakona adapters.
 - Customer public API, hashed scoped keys, expiry/revocation, rate limits and request IDs.
 - Transactional webhook outbox, HMAC signatures and bounded retries.

@@ -9,8 +9,9 @@ import {
   Download,
   ArrowRight,
   Trash2,
+  Pencil,
 } from "lucide-react";
-import { api, supabase } from "../lib/api";
+import { api, apiAll, supabase } from "../lib/api";
 import { useWorkspace } from "../app/App";
 import {
   PageTitle,
@@ -237,6 +238,7 @@ export function ResourcePage({
   const [modal, setModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [detail, setDetail] = useState<any>(null);
+  const [editing, setEditing] = useState(false);
   const [raw, setRaw] = useState("");
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -542,22 +544,89 @@ export function ResourcePage({
       {detail && (
         <Modal
           title={config.singular + " details"}
-          onClose={() => setDetail(null)}
+          onClose={() => {
+            setDetail(null);
+            setEditing(false);
+          }}
         >
-          <div className="detail-list">
-            {Object.entries(detail)
-              .filter(([k]) => !["organization_id", "id"].includes(k))
-              .map(([k, v]) => (
-                <div key={k}>
-                  <span>{k.replaceAll("_", " ")}</span>
-                  <strong>
-                    {typeof v === "object"
-                      ? JSON.stringify(v)
-                      : String(v ?? "—")}
-                  </strong>
-                </div>
+          {editing && config.resource === "contacts" ? (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                setError(null);
+                try {
+                  const updated = await api("contacts/" + detail.id, {
+                    method: "PATCH",
+                    body: Object.fromEntries(new FormData(e.currentTarget)),
+                  });
+                  setDetail(updated);
+                  setEditing(false);
+                  await invalidate();
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <ErrorBox error={error} />
+              {config.fields?.map((field) => (
+                <label key={field.key}>
+                  {field.label}
+                  <input
+                    name={field.key}
+                    type={field.type ?? "text"}
+                    required={field.required !== false}
+                    defaultValue={
+                      field.key === "phone"
+                        ? detail.normalized_phone
+                        : (detail[field.key] ?? "")
+                    }
+                  />
+                </label>
               ))}
-          </div>
+              <div className="form-actions">
+                <button className="button" disabled={busy}>
+                  {busy ? "Saving…" : "Save contact"}
+                </button>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setEditing(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="detail-list">
+              {Object.entries(detail)
+                .filter(([k]) => !["organization_id", "id"].includes(k))
+                .map(([k, v]) => (
+                  <div key={k}>
+                    <span>{k.replaceAll("_", " ")}</span>
+                    <strong>
+                      {typeof v === "object"
+                        ? JSON.stringify(v)
+                        : String(v ?? "—")}
+                    </strong>
+                  </div>
+                ))}
+            </div>
+          )}
+          {config.resource === "contacts" && !editing && (
+            <button
+              className="button secondary"
+              onClick={() => {
+                setError(null);
+                setEditing(true);
+              }}
+            >
+              <Pencil size={16} />
+              Edit contact
+            </button>
+          )}
           {config.resource === "campaigns" && (
             <>
               <Link
@@ -641,6 +710,13 @@ export function ResourcePage({
             <button
               className="button danger"
               onClick={async () => {
+                if (
+                  config.resource === "contacts" &&
+                  !window.confirm(
+                    "Delete this contact permanently? It will also be removed from every group.",
+                  )
+                )
+                  return;
                 try {
                   await api(config.resource + "/" + detail.id, {
                     method: "DELETE",
@@ -654,7 +730,7 @@ export function ResourcePage({
             >
               <Trash2 size={16} />
               {config.resource === "contacts"
-                ? "Archive contact"
+                ? "Delete contact"
                 : config.resource === "webhooks"
                   ? "Disable endpoint"
                   : "Remove"}
@@ -681,14 +757,15 @@ export function ResourcePage({
 function GroupMembers({ groupId }: { groupId: string }) {
   const client = useQueryClient();
   const members = useQuery({
-    queryKey: ["group-members"],
-    queryFn: () => api("group-members"),
+    queryKey: ["group-members", "all"],
+    queryFn: () => apiAll("group-members"),
   });
   const contacts = useQuery({
-    queryKey: ["contacts"],
-    queryFn: () => api("contacts"),
+    queryKey: ["contacts", "all"],
+    queryFn: () => apiAll("contacts"),
   });
   const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
   return (
     <div>
       <h3>Group members</h3>
@@ -750,6 +827,50 @@ function GroupMembers({ groupId }: { groupId: string }) {
           </select>
         </label>
         <button className="button">Add to group</button>
+      </form>
+      <h3>Create a new contact in this group</h3>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          setBusy(true);
+          setError(null);
+          try {
+            await api("groups/" + groupId + "/contacts", {
+              method: "POST",
+              body: Object.fromEntries(new FormData(form)),
+            });
+            form.reset();
+            await Promise.all([
+              client.invalidateQueries({ queryKey: ["contacts"] }),
+              client.invalidateQueries({ queryKey: ["group-members"] }),
+            ]);
+          } catch (e) {
+            setError(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          First name
+          <input name="first_name" required maxLength={100} />
+        </label>
+        <label>
+          Last name
+          <input name="last_name" maxLength={100} />
+        </label>
+        <label>
+          Phone number
+          <input name="phone" required />
+        </label>
+        <label>
+          Email
+          <input name="email" type="email" />
+        </label>
+        <button className="button" disabled={busy}>
+          {busy ? "Creating…" : "Create and add to group"}
+        </button>
       </form>
     </div>
   );

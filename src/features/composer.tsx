@@ -10,7 +10,7 @@ import {
   Check,
   Clock3,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, apiAll } from "../lib/api";
 import { useWorkspace } from "../app/App";
 import { estimateSms, filterRecipients } from "../../shared/sms";
 import { PageTitle, ErrorBox, Modal, number } from "../components/ui";
@@ -26,57 +26,75 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
   const [schedule, setSchedule] = useState("");
   const [group, setGroup] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
   const [test, setTest] = useState(false);
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [key, setKey] = useState(crypto.randomUUID());
   const senders = useQuery({
-    queryKey: ["sender-ids"],
-    queryFn: () => api("sender-ids"),
+    queryKey: ["sender-ids", "all"],
+    queryFn: () => apiAll("sender-ids"),
   });
   const contacts = useQuery({
-    queryKey: ["contacts"],
-    queryFn: () => api("contacts"),
+    queryKey: ["contacts", "all"],
+    queryFn: () => apiAll("contacts"),
   });
   const groups = useQuery({
-    queryKey: ["groups"],
-    queryFn: () => api("groups"),
+    queryKey: ["groups", "all"],
+    queryFn: () => apiAll("groups"),
   });
   const members = useQuery({
-    queryKey: ["group-members"],
-    queryFn: () => api("group-members"),
+    queryKey: ["group-members", "all"],
+    queryFn: () => apiAll("group-members"),
   });
   const templates = useQuery({
     queryKey: ["templates"],
     queryFn: () => api("templates"),
   });
   const suppression = useQuery({
-    queryKey: ["suppression"],
-    queryFn: () => api("suppression"),
+    queryKey: ["suppression", "all"],
+    queryFn: () => apiAll("suppression"),
   });
   const balance = useQuery({
     queryKey: ["balance"],
     queryFn: () => api("balance"),
   });
-  const candidates = useMemo(
-    () =>
-      mode === "numbers"
-        ? recipients
-            .split(/[,;\n]+/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : mode === "contacts"
-          ? selected
-          : (contacts.data?.data ?? [])
-              .filter((c: any) =>
-                members.data?.data.some(
-                  (m: any) => m.group_id === group && m.contact_id === c.id,
-                ),
-              )
-              .map((c: any) => c.normalized_phone),
-    [mode, recipients, selected, contacts.data, members.data, group],
+  const activeContacts = useMemo(
+    () => (contacts.data?.data ?? []).filter((c: any) => c.status === "active"),
+    [contacts.data],
   );
+  const visibleContacts = useMemo(() => {
+    const search = contactSearch.trim().toLowerCase();
+    if (!search) return activeContacts;
+    return activeContacts.filter((c: any) =>
+      [c.first_name, c.last_name, c.normalized_phone, c.email].some((value) =>
+        String(value ?? "")
+          .toLowerCase()
+          .includes(search),
+      ),
+    );
+  }, [activeContacts, contactSearch]);
+  const groupContactIds = useMemo(
+    () =>
+      new Set(
+        (members.data?.data ?? [])
+          .filter((m: any) => m.group_id === group)
+          .map((m: any) => m.contact_id),
+      ),
+    [members.data, group],
+  );
+  const candidates = useMemo(() => {
+    if (mode === "numbers")
+      return recipients
+        .split(/[,;\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (mode === "contacts") return selected;
+    return activeContacts
+      .filter((c: any) => groupContactIds.has(c.id))
+      .map((c: any) => c.normalized_phone);
+  }, [mode, recipients, selected, activeContacts, groupContactIds]);
   const validation = filterRecipients(
     candidates,
     suppression.data?.data.map((s: any) => s.normalized_phone) ?? [],
@@ -96,25 +114,29 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
       <PageTitle
         eyebrow={campaign ? "CAMPAIGN" : "DIRECT MESSAGE"}
         title={campaign ? "Create a campaign" : "Send an SMS"}
-        description={campaign
-          ? "Prepare a named message for a larger audience or a scheduled send."
-          : "Enter a number, write your message, and send. No campaign setup needed."}
+        description={
+          campaign
+            ? "Prepare a named message for a larger audience or a scheduled send."
+            : "Enter a number, write your message, and send. No campaign setup needed."
+        }
       />
-      {campaign && <div className="compose-progress">
-        {[
-          [Users, "Audience"],
-          [MessageSquare, "Message"],
-          [Clock3, "Schedule"],
-          [ShieldCheck, "Review & send"],
-        ].map(([Icon, label]: any, i) => (
-          <div key={label}>
-            <span>{i + 1}</span>
-            <Icon size={16} />
-            {label}
-            {i < 3 && <ArrowRight size={15} />}
-          </div>
-        ))}
-      </div>}
+      {campaign && (
+        <div className="compose-progress">
+          {[
+            [Users, "Audience"],
+            [MessageSquare, "Message"],
+            [Clock3, "Schedule"],
+            [ShieldCheck, "Review & send"],
+          ].map(([Icon, label]: any, i) => (
+            <div key={label}>
+              <span>{i + 1}</span>
+              <Icon size={16} />
+              {label}
+              {i < 3 && <ArrowRight size={15} />}
+            </div>
+          ))}
+        </div>
+      )}
       <ErrorBox error={error} />
       <div className="compose-grid">
         <form
@@ -128,19 +150,21 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
             <span>01</span>
             <h2>{campaign ? "Campaign details" : "Send from"}</h2>
           </div>
-          {campaign && <label>
-            Campaign name
-            <input
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setKey(crypto.randomUUID());
-              }}
-              required
-              placeholder="e.g. September customer update"
-              maxLength={100}
-            />
-          </label>}
+          {campaign && (
+            <label>
+              Campaign name
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setKey(crypto.randomUUID());
+                }}
+                required
+                placeholder="e.g. September customer update"
+                maxLength={100}
+              />
+            </label>
+          )}
           <label>
             Sender ID
             <select
@@ -210,32 +234,54 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
                 ))}
               </select>
               <small>
-                Groups and contacts shown here are the first 50 records.
+                All active contacts in the selected group will be included, up
+                to the 10,000-recipient campaign limit.
               </small>
             </label>
           ) : (
             <div className="contact-selector">
-              {contacts.data?.data
-                .filter((c: any) => c.status === "active")
-                .map((c: any) => (
-                  <label className="check-label" key={c.id}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(c.normalized_phone)}
-                      onChange={(e) =>
-                        setSelected(
-                          e.target.checked
-                            ? [...selected, c.normalized_phone]
-                            : selected.filter((p) => p !== c.normalized_phone),
-                        )
-                      }
-                    />
-                    {c.first_name} <span>{c.normalized_phone}</span>
-                  </label>
-                ))}
+              <div className="contact-selector-tools">
+                <input
+                  aria-label="Search contacts"
+                  placeholder="Search contacts…"
+                  value={contactSearch}
+                  onChange={(e) => setContactSearch(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="button secondary small"
+                  onClick={() =>
+                    setSelected(
+                      selected.length === activeContacts.length
+                        ? []
+                        : activeContacts.map((c: any) => c.normalized_phone),
+                    )
+                  }
+                >
+                  {selected.length === activeContacts.length
+                    ? "Clear all"
+                    : `Select all ${activeContacts.length}`}
+                </button>
+              </div>
+              {visibleContacts.map((c: any) => (
+                <label className="check-label" key={c.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(c.normalized_phone)}
+                    onChange={(e) =>
+                      setSelected(
+                        e.target.checked
+                          ? [...selected, c.normalized_phone]
+                          : selected.filter((p) => p !== c.normalized_phone),
+                      )
+                    }
+                  />
+                  {c.first_name} <span>{c.normalized_phone}</span>
+                </label>
+              ))}
               <small>
-                Showing the first 50 contacts. Use phone numbers for larger
-                audiences.
+                {selected.length} selected from {activeContacts.length} active
+                contacts. Bulk sends are queued in provider-sized batches.
               </small>
             </div>
           )}
@@ -290,23 +336,27 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
               {sms.parts} estimated SMS {sms.parts === 1 ? "part" : "parts"}
             </span>
           </div>
-          {campaign && <div className="section-label">
-            <span>04</span>
-            <h2>Delivery time</h2>
-          </div>}
-          {campaign && <label>
-            Schedule (optional)
-            <input
-              type="datetime-local"
-              value={schedule}
-              onChange={(e) => setSchedule(e.target.value)}
-            />
-            <small>
-              Leave blank to send now. Selected time uses your browser timezone:{" "}
-              {Intl.DateTimeFormat().resolvedOptions().timeZone}. Quiet hours
-              use {session.organization.timezone}.
-            </small>
-          </label>}
+          {campaign && (
+            <div className="section-label">
+              <span>04</span>
+              <h2>Delivery time</h2>
+            </div>
+          )}
+          {campaign && (
+            <label>
+              Schedule (optional)
+              <input
+                type="datetime-local"
+                value={schedule}
+                onChange={(e) => setSchedule(e.target.value)}
+              />
+              <small>
+                Leave blank to send now. Selected time uses your browser
+                timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}.
+                Quiet hours use {session.organization.timezone}.
+              </small>
+            </label>
+          )}
           {session.demo && (
             <label className="check-label">
               <input
@@ -318,7 +368,8 @@ export function Composer({ campaign = false }: { campaign?: boolean }) {
             </label>
           )}
           <button className="button" type="submit" disabled={!ready || busy}>
-            {campaign ? "Review campaign" : "Review SMS"} <ArrowRight size={17} />
+            {campaign ? "Review campaign" : "Review SMS"}{" "}
+            <ArrowRight size={17} />
           </button>
         </form>
         <aside className="compose-aside">

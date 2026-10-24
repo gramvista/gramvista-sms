@@ -55,7 +55,8 @@ This inventory describes the source in this package and the deployment report da
 - **ClickPesa live configuration and real transaction unverified.** SQL creates wallet and payment controls; it does not connect a merchant account. A merchant operator must handle the account-side setup. No card or mobile-money payment was charged in this work.
 - **Kilakona live sending remains disabled.** Historical inventory was zero. Confirm the current balance and commercial contract; no live send was performed here.
 - **Sender IDs are manually submitted/approved.** Customers can request them, but there is no verified upstream registration API.
-- **First 50 contacts/groups are shown in the composer.** Larger audiences should use pasted phone numbers until contact selection gains search and pagination.
+- **Bulk audience selection is capped at 10,000 recipients per campaign.** Contacts and group memberships are loaded across API pages, while provider submissions remain split to the configured provider batch limit.
+- **Worker dispatch is bounded and concurrent.** `WORKER_SEND_CONCURRENCY` defaults to 4 (maximum 10) and `WORKER_MAX_JOBS` defaults to 20 (maximum 100). Confirm the provider rate limit before increasing either value.
 - **Legacy manual package checkout is still visible if packages are published.** Decide whether to keep that separate manual purchase path or consolidate packages into ClickPesa before public launch.
 - **Refunds/chargebacks need an operator process.** Automatic SMS-credit reversal after a ClickPesa refund has not been built; avoid claiming it is automatic.
 - **Production build was type-checked and linted locally.** Full build/browser tests and database migration execution still need confirmation in an environment with its native dependencies.
