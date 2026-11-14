@@ -1655,14 +1655,35 @@ legend {
   color: #bdcde7;
 }
 .platform-top > span,
-.platform-top > a {
+.platform-actions,
+.platform-actions > a,
+.platform-signout {
   display: flex;
   align-items: center;
   gap: 9px;
 }
-.platform-top > a {
+.platform-actions {
+  gap: 18px;
+}
+.platform-actions > a,
+.platform-signout {
   color: #a7c4f7;
   font-size: 12px;
+}
+.platform-signout {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.platform-signout:hover,
+.platform-actions > a:hover {
+  color: white;
+}
+.platform-signout:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 .admin-tools {
   display: flex;
@@ -2221,7 +2242,11 @@ legend {
     padding: 20px 17px;
     font-size: 12px;
   }
-  .platform-top a {
+  .platform-actions {
+    gap: 12px;
+  }
+  .platform-actions > a,
+  .platform-signout {
     font-size: 10px;
   }
   .admin-tools .button {

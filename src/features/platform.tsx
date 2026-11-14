@@ -2,7 +2,7 @@ import { SenderReview } from "./sender-review";
 import { OrderDetail } from "./order-detail";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ShieldCheck,
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   Wallet,
   Building2,
   Activity,
+  LogOut,
 } from "lucide-react";
 import { api, supabase } from "../lib/api";
 import {
@@ -25,6 +26,7 @@ import {
 } from "../components/ui";
 export function Platform() {
   const client = useQueryClient();
+  const navigate = useNavigate();
   const [reviewing, setReviewing] = useState<any>(null);
   const [reviewingOrder, setReviewingOrder] = useState<any>(null);
   const [tab, setTab] = useState("organizations");
@@ -67,6 +69,26 @@ export function Platform() {
       return r;
     } catch (e) {
       setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function signOut() {
+    if (!supabase) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        const { error: localSignOutError } = await supabase.auth.signOut({
+          scope: "local",
+        });
+        if (localSignOutError) throw signOutError;
+      }
+      client.clear();
+      navigate("/login", { replace: true });
+    } catch (signOutError) {
+      setError(signOutError);
     } finally {
       setBusy(false);
     }
@@ -137,12 +159,26 @@ export function Platform() {
           <ShieldCheck />
           Gramvista <strong>Platform</strong>
         </span>
-        <Link to={session.data?.organization ? "/" : "/onboarding"}>
-          <ArrowLeft size={16} />
-          {session.data?.organization
-            ? "Customer workspace"
-            : "Create customer workspace"}
-        </Link>
+        <div className="platform-actions">
+          <Link to={session.data?.organization ? "/" : "/onboarding"}>
+            <ArrowLeft size={16} />
+            {session.data?.organization
+              ? "Customer workspace"
+              : "Create customer workspace"}
+          </Link>
+          {supabase && (
+            <button
+              type="button"
+              className="platform-signout"
+              aria-label="Sign out"
+              disabled={busy}
+              onClick={signOut}
+            >
+              <LogOut size={16} />
+              {busy ? "Signing out…" : "Sign out"}
+            </button>
+          )}
+        </div>
       </header>
       <main>
         <PageTitle
