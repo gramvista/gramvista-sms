@@ -9,8 +9,8 @@ port = 54322
 major_version = 17
 [auth]
 enabled = true
-site_url = "http://localhost:5173"
-additional_redirect_urls = ["http://localhost:5173", "http://localhost:5173/reset-password", "http://127.0.0.1:5173", "http://127.0.0.1:5173/reset-password"]
+site_url = "https://sms.gramvistaempiregroup.com"
+additional_redirect_urls = ["https://sms.gramvistaempiregroup.com", "https://sms.gramvistaempiregroup.com/reset-password", "http://localhost:5173", "http://localhost:5173/reset-password", "http://127.0.0.1:5173", "http://127.0.0.1:5173/reset-password"]
 [auth.email]
 enable_signup = true
 enable_confirmations = true

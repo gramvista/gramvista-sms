@@ -6,10 +6,10 @@ This inventory describes the source in this package and the deployment report da
 
 | Account / system | Purpose | Code location | Current evidence and remaining input |
 | --- | --- | --- | --- |
-| Website hosting and domain | Serves the React frontend | `dist/`, `VITE_*` build variables | No public frontend domain or hosting destination recorded. Client routes need an index.html fallback and HTTPS. |
+| Website hosting and domain | Serves the React frontend | `dist/`, `VITE_*` build variables | Cloudflare Pages serves `https://sms.gramvistaempiregroup.com` with HTTPS and the client-route fallback. |
 | Supabase project | Auth, PostgreSQL, private storage, Edge Functions, cron | `supabase/` | Existing project ref in `docs/CLOUD-DEPLOYMENT.md`; migrations 001–010 and functions were reported deployed. Confirm actual current state. Apply migrations 011 and 012 after backup. |
 | Gramvista platform admin | Reviews customers, Sender IDs, manual payments, wallets and upstream capacity | `/platform`, `platform_admins` | Verified bootstrap invitation for `gramvistagroup@gmail.com` was recorded. An actual Supabase Auth account must be created and verified with that email; it is separate from the ClickPesa merchant account. Confirm access instead of creating a duplicate admin. |
-| Customer account | Verified email sign-up and company workspace | `/signup`, `/onboarding` | Available in code. Email confirmation delivery and production redirects are not verified. New wallets start at zero. |
+| Customer account | Verified email sign-up and company workspace | `/signup`, `/onboarding` | Production verification and password-reset redirects use `https://sms.gramvistaempiregroup.com`; delivery still depends on Supabase email service health. New wallets start at zero. |
 | ClickPesa merchant application | Hosted checkout and payment confirmation | `server/payments/ClickPesa.ts`, `clickpesa-webhook` | Integration code exists; this application is **not connected merely by running SQL**. Authorized merchant operator must complete the server-side credential and application webhook configuration. No real payment confirmed here. |
 | Kilakona merchant account | Wholesale SMS delivery and balance | `providers/kilakona/`, `worker` | Balance query worked in the historical report; balance was zero then. Live send still blocked pending funded inventory, batch limit, Sender ID approval and confirmed billing rules. |
 
@@ -51,7 +51,6 @@ This inventory describes the source in this package and the deployment report da
 
 ## Known gaps and decisions
 
-- **Public domain/host missing from the archive.** Production redirect, CORS and frontend API settings cannot be finalized without the actual domain.
 - **ClickPesa live configuration and real transaction unverified.** SQL creates wallet and payment controls; it does not connect a merchant account. A merchant operator must handle the account-side setup. No card or mobile-money payment was charged in this work.
 - **Kilakona live sending remains disabled.** Historical inventory was zero. Confirm the current balance and commercial contract; no live send was performed here.
 - **Sender IDs are manually submitted/approved.** Customers can request them, but there is no verified upstream registration API.
