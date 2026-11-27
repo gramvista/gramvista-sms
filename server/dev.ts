@@ -46,6 +46,7 @@ for (const migration of [
   "202609160004_wallet_reset.sql",
   "202609260001_clickpesa_and_retail_minimum.sql",
   "202609260002_optional_quiet_hours.sql",
+  "202611260001_rebase_kilakona_inventory.sql",
 ]) {
   if (
     !(

@@ -88,6 +88,7 @@ beforeAll(async () => {
     "202609160004_wallet_reset",
     "202609260001_clickpesa_and_retail_minimum",
     "202609260002_optional_quiet_hours",
+    "202611260001_rebase_kilakona_inventory",
   ])
     await pg.exec(await readFile(`supabase/migrations/${file}.sql`, "utf8"));
 }, 30000);
